@@ -1,0 +1,24 @@
+# Compiled emulator and generated assembler/test outputs
+/build/
+/gk6502
+
+# Downloaded and assembled ROMs (keep tests/functional/*.bin tracked)
+/roms/*.bin
+
+# Locally bootstrapped cc65 toolchain and download cache
+/.tools/
+
+# Python bytecode and local virtual environments
+__pycache__/
+*.py[cod]
+/.venv/
+
+# Editor backups and operating-system metadata
+*~
+*.swp
+*.swo
+.DS_Store
+
+# Local crash dumps
+/core
+/core.[0-9]*
