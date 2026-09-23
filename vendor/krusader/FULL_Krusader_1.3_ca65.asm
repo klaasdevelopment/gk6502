@@ -503,9 +503,7 @@ SHELL:			; Loops forever
 	LDA #PROMPT
 	JSR OUTCH	; prompt
 	JSR OUTSP	; can drop this if desperate for 3 more bytes :-)
-@KEY:	JSR GETCH
-	CMP #BS
-	BEQ SHELL	; start again
+@KEY:	JSR SHELLKEY
 	CMP #CR
 	BEQ @RUN
 	JSR OUTCH
@@ -962,10 +960,88 @@ PRNTLN:			; print out the current line (preserve X)
 		
 ; ****************************************
 
+.segment "CODE"	; Input helpers use free ROM below $F000.
+
+; Delete one displayed character, preserving the input index in X.
+ERASECH:
+	LDA #BS
+	JSR OUTCH
+	JSR OUTSP
+	LDA #BS
+	JMP OUTCH
+
+; Accept both ASCII BS and DEL (the usual terminal Backspace encoding).
+EDITKEY:
+	JSR GETCH
+	CMP #$7F
+	BNE @RET
+	LDA #BS
+@RET:	RTS
+
+SHELLKEY:
+	JSR EDITKEY
+	CMP #BS
+	BNE @RET
+	CPX #ARGS
+	BEQ SHELLKEY	; Empty command: leave the prompt alone.
+	DEX
+	LDA #EOL
+	STA IOBUF,X
+	JSR ERASECH
+	JMP SHELLKEY
+@RET:	RTS
+
+; NEXTCH has discarded both field-reader return addresses. Resume the
+; appropriate field with the shortened buffer, without reprinting the line.
+EDITBS:
+	CPX #LABEL
+	BEQ @RESUME
+	DEX
+	LDA #SP
+	STA IOBUF,X
+	JSR ERASECH
+@RESUME:
+	CPX #ENDLBL
+	BCC @LABEL
+	BEQ @LABELEND
+	LDA LABEL
+	CMP #CMNT
+	BEQ @COMMENT
+	CPX #ENDMNE
+	BCC @MNE
+	BEQ @MNEEND
+	CPX #ENDARG
+	BCC @ARGS
+@COMMENT:
+	JMP INCOMMENT
+@LABEL:
+	JMP INLABEL
+@LABELEND:
+	JSR EDITSEP
+	JMP INAFTERLABEL
+@MNE:
+	JMP INMNE
+@MNEEND:
+	JSR EDITSEP
+	JMP INARGS
+@ARGS:
+	JMP INARGS
+
+; A deleted separator must wait for input, even after a padded field.
+EDITSEP:
+	JSR NEXTCH
+	CMP #SP
+	BNE EDITSEP
+	STA IOBUF,X
+	INX
+	JMP OUTCH
+
+.segment "KRUCODE"
+
 NEXTCH:			; Check for valid character in A
 			; Also allows direct entry to appropriate location
 			; Flag success with C flag
-	JSR GETCH
+	JSR EDITKEY
 	.if TABTOSPACE	;L1
 		CMP #$09	; is it a tab?
 		BNE @SKIP
@@ -979,7 +1055,8 @@ NEXTCH:			; Check for valid character in A
 	PLA
 	PLA		; wipe out return addresses
 	CPY #BS
-	BEQ INPUT	; just do it all again
+	BNE @NOBS
+	JMP EDITBS	; delete one character and resume its field
 @NOBS:	CPY #CR
 	BNE LFAIL
 	CPX #LABEL	; CR at start of LABEL means a blank line
@@ -1025,18 +1102,24 @@ INPUT:
 	JSR CRLF
 	JSR PRLNNM
 	LDX #LABEL	; point to LABEL area
+INLABEL:
 	LDA #ENDLBL
 	JSR ONEFLD
+INLABELEND:
 	JSR INSSPC	; Move to mnemonic field
+INAFTERLABEL:
 	LDA LABEL
 	CMP #CMNT
-	BEQ @CMNT
+	BEQ INCOMMENT
+INMNE:
 	LDA #ENDMNE
 	JSR ONEFLD
+INMNEEND:
 	JSR INSSPC	; Move to args field
+INARGS:
 	LDA #ENDARG
 	JSR ONEFLD
-@CMNT:	LDA #EOL
+INCOMMENT:	LDA #EOL
 	JSR ONEFLD
 GOTEOL:	;JMP TOTKN	
 ; falls through

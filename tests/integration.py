@@ -141,6 +141,49 @@ def krusader():
     print('PASS Krusader assembly, monitor, editor, assembler, disassembler, execution, boots')
 
 
+def krusader_backspace():
+    erase = b'\x08 \x08'
+    # Check both terminal Backspace encodings through an actual raw-mode PTY.
+    for key in (b'\x08', b'\x7f'):
+        with Session('krusader.properties', terminal=True) as s:
+            s.expect(b'WELCOME TO GAKMON V1.0')
+            s.send(b'F000R\r'); s.expect(b'? ')
+            s.send(key * 3 + b'LX' + key * 3 + b'N\r')
+            assert s.expect(b'000 ') == b'LX' + erase * 2 + b'N\r\n000 '
+            # Each case must leave a valid LDA #$2A line, including when
+            # deletion crosses the editor's automatically padded fields.
+            cases = [
+                (key * 3 + b' LDA #$2B' + key + b'A',
+                 b' ' * 7 + b'LDA #$2B' + erase + b'A'),
+                (b'X' + key * 3 + b' LDA #$2A',
+                 b'X' + erase + b' ' * 7 + b'LDA #$2A'),
+                (b' ' + key * 7 + b' LDA #$2A',
+                 b' ' * 7 + erase * 7 + b' ' * 7 + b'LDA #$2A'),
+                (b' LDX' + key + b'A #$2A',
+                 b' ' * 7 + b'LDX' + erase + b'A #$2A'),
+                (b' LDX ' + key * 2 + b'A #$2A',
+                 b' ' * 7 + b'LDX ' + erase * 2 + b'A #$2A'),
+                (b' LDA #$2A ' + key * 11 + b'A',
+                 b' ' * 7 + b'LDA #$2A' + b' ' * 10 + erase * 11 + b'A'),
+                (b' LDA #$2A ;123456789Z' + key + b'X',
+                 b' ' * 7 + b'LDA #$2A' + b' ' * 10 + b';123456789' + erase + b'X'),
+                (b' LDA #$2A ;XY' + key * 2,
+                 b' ' * 7 + b'LDA #$2A' + b' ' * 10 + b';XY' + erase * 2),
+            ]
+            for index, (typed, echoed) in enumerate(cases):
+                s.send(typed + b'\r')
+                prompt = f'{index + 1:03X} '.encode()
+                actual = s.expect(prompt)
+                assert actual == echoed + b'\r\n' + prompt, (index, actual, echoed)
+            s.send(b'\x1b'); s.expect(b'? ')
+            s.send(b'L\r'); listing = s.expect(b'? ')
+            assert listing.count(b'LDA') == len(cases), listing
+            assert listing.count(b'#$2A') == len(cases), listing
+            s.send(b'AX' + key + b'\r')
+            assert b'0300-030F' in s.expect(b'? ')
+    print('PASS Krusader BS/DEL editing, empty input, field boundaries, PTY echo, assembly')
+
+
 def config_tests():
     with tempfile.TemporaryDirectory() as directory:
         d=Path(directory)
@@ -183,4 +226,5 @@ def config_tests():
 if __name__=='__main__':
     basic()
     krusader()
+    krusader_backspace()
     config_tests()
